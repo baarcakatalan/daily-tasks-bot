@@ -5,7 +5,19 @@ from datetime import datetime, timedelta
 import jdatetime
 import json
 import os
+import threading
+from flask import Flask  # ✅ این خط رو اضافه کن
 
+# ✅ این بخش رو اضافه کن
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 Telegram Bot is Running!"
+
+def run_web_server():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
 # تنظیمات پیشرفته لاگ
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -675,4 +687,5 @@ def main():
     application.run_polling()
 
 if __name__ == '__main__':
+
     main()
