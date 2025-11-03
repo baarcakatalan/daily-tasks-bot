@@ -676,16 +676,20 @@ def main():
     
     # هندلر برای پیام‌های متنی عمومی
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, show_main_menu))
-    
-    # 🔥 تغییر ۳: پیام متفاوت برای Render
+    # 🔥 تغییر ۳: راه‌اندازی سرور وب برای Render
+    print("🚀 Starting web server for Render...")
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    # 🔥 تغییر 4: پیام متفاوت برای Render
     print("🤖 ربات روی Render فعال شد!")
     print("📊 دیتابیس: users_data.json")
     print("📝 لاگ‌ها: bot.log")
     print("🌐 ربات 24/7 در دسترس است!")
     print("-" * 50)
-    
+
     application.run_polling()
 
 if __name__ == '__main__':
 
     main()
+
