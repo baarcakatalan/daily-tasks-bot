@@ -6,20 +6,10 @@ import jdatetime
 import json
 import os
 import threading
-from flask import Flask
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
 
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "🤖 Telegram Bot is Running!"
-
-def run_web_server():
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -843,9 +833,6 @@ def main():
     application.add_handler(CommandHandler("checklist", show_checklist))
     application.add_handler(CommandHandler("stats", show_stats))
     
-    print("🚀 Starting web server for Render...")
-    web_thread = threading.Thread(target=run_web_server, daemon=True)
-    web_thread.start()
     
     print("⏰ Setting up daily checklists scheduler...")
     setup_scheduler()
@@ -855,3 +842,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
