@@ -7,6 +7,9 @@ import json
 import os
 import threading
 from flask import Flask
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import pytz
 
 app = Flask(__name__)
 
@@ -23,7 +26,10 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-SETUP_TASKS, MAIN_MENU, ADD_TASK_DATE, ADD_TASK_NAME, COMPLETE_TASKS = range(5)
+# حالت‌های مکالمه
+MAIN_MENU, MANAGE_TASKS_MENU, ADD_TASK_DATE_SELECT, ADD_TASK_CONTENT, \
+EDIT_TASK_SELECT, EDIT_TASK_ACTION, DELETE_TASK_SELECT, VIEW_TASKS_DATE_SELECT, \
+TASK_CHECKLIST, STATS_PERIOD = range(10)
 
 DB_FILE = 'users_data.json'
 TOKEN = os.environ.get('BOT_TOKEN', '')
@@ -49,18 +55,16 @@ class Database:
 
 users_db = Database.load()
 
-def get_all_dates():
+def get_three_calendars():
     now = datetime.now()
     jdate = jdatetime.datetime.now()
     
+    hijri_date = "۱۴۴۵/۰۶/۲۳"
+    
     persian_days = {
-        'Saturday': 'شنبه',
-        'Sunday': 'یکشنبه', 
-        'Monday': 'دوشنبه',
-        'Tuesday': 'سه‌شنبه',
-        'Wednesday': 'چهارشنبه',
-        'Thursday': 'پنجشنبه',
-        'Friday': 'جمعه'
+        'Saturday': 'شنبه', 'Sunday': 'یکشنبه', 'Monday': 'دوشنبه',
+        'Tuesday': 'سه‌شنبه', 'Wednesday': 'چهارشنبه',
+        'Thursday': 'پنجشنبه', 'Friday': 'جمعه'
     }
     
     english_day = now.strftime('%A')
@@ -71,23 +75,13 @@ def get_all_dates():
 
 🇮🇷 **شمسی:** {jdate.strftime('%Y/%m/%d')} - {jdate.strftime('%A')}
 🌍 **میلادی:** {now.strftime('%Y-%m-%d')} - {persian_day}
+🌙 **قمری:** {hijri_date} - الجمعة
 """
 
-def get_date_key():
-    return datetime.now().strftime("%Y-%m-%d")
-
-def format_task_list(tasks, show_completion=True):
-    if not tasks:
-        return "📝 هیچ کاری ثبت نشده"
-    
-    result = ""
-    for i, task in enumerate(tasks, 1):
-        if show_completion:
-            status = "✅" if task.get("completed", False) else "◻️"
-            result += f"{i}. {status} {task['name']}\n"
-        else:
-            result += f"{i}. {task['name']}\n"
-    return result
+def get_date_key(date_obj=None):
+    if date_obj is None:
+        date_obj = datetime.now()
+    return date_obj.strftime("%Y-%m-%d")
 
 async def start(update: Update, context: CallbackContext) -> int:
     user_id = str(update.effective_user.id)
@@ -97,395 +91,693 @@ async def start(update: Update, context: CallbackContext) -> int:
     
     if user_id not in users_db:
         users_db[user_id] = {
-            "setup_complete": False,
             "daily_tasks": [],
             "dated_tasks": {},
-            "last_active_date": get_date_key(),
+            "checklist_responses": {},
             "created_at": get_date_key(),
             "user_name": user_name
         }
         Database.save(users_db)
     
-    user_data = users_db[user_id]
-    
-    if not user_data["setup_complete"]:
-        welcome_text = f"""
+    welcome_text = f"""
 👋 **سلام {user_name} عزیز!**
 
-📅 **به ربات مدیریت کارهای روزانه خوش اومدی!**
+راستش من برای این اینجام تا هم توی مصرف کاغذ صرفه جویی بشه هم چیزی از قلم نیفته
+هر کاری که می‌خوای توی هر روزی انجام بدی رو بنویس 
+نگران نباش اگه چیزی از قلم افتاد میتونی دوباره بهش اضافه کنی یا ویرایش و حذف کنی
+همچنین امکاناتی مثل چک لیست و گزارش گیری هم برای شما در نظر گرفته شده
 
-**حالا کارهای روزانه‌ات رو تعریف کن:**
-راستش من برای این اینجام تا هم توی مصرف کاغذ صرفه جویی بشه هم چیزی از قلم نیفته هر کاری که می‌خوای هر روز انجام بدی رو بنویس
-نگران نباش اگه چیزی از قلم افتاد میتونی دوباره بهش اضافه کنی
-📝 **مثال:**
-• ورزش صبحگاهی
-• مطالعه ۳۰ دقیقه
-• برنامه نویسی
-حالا از منوی پایین یکی از کزینه ها رو انتخاب کن و شروع کن 
+🏠 **منوی اصلی شامل:**
 
-➡️ **اولین کار روزانه‌ات رو بنویس...**
-        """
-        await update.message.reply_text(welcome_text, reply_markup=ReplyKeyboardRemove())
-        return SETUP_TASKS
-    else:
-        await show_main_menu(update, context)
-        return MAIN_MENU
+📅 **برنامه امروز** - مشاهده کارهای امروز
+🔧 **مدیریت کارها** - اضافه/ویرایش/حذف کارها
+📋 **مشاهده برنامه** - کارهای تاریخ مشخص
+✅ **چک لیست امروز** - ثبت انجام کارها
+📊 **آمار و گزارش** - عملکرد شما
 
-async def setup_tasks(update: Update, context: CallbackContext) -> int:
-    user_id = str(update.effective_user.id)
-    task_text = update.message.text.strip()
-    
-    if task_text.lower() in ['/done', 'اتمام', 'تمام', 'done', 'پایان']:
-        return await done_setup(update, context)
-    
-    if task_text and len(task_text) > 1:
-        users_db[user_id]["daily_tasks"].append({
-            "name": task_text,
-            "completed": False,
-            "created_at": get_date_key()
-        })
-        
-        Database.save(users_db)
-        tasks_count = len(users_db[user_id]["daily_tasks"])
-        
-        tasks_list = format_task_list(users_db[user_id]["daily_tasks"], show_completion=False)
-        
-        if tasks_count < 3:
-            response_text = f"""
-✅ **'{task_text}' ثبت شد!**
-
-📋 **کارهای ثبت شده ({tasks_count}):**
-{tasks_list}
-
-➡️ **کار بعدی رو بنویس یا 'اتمام' بفرست...**
-            """
-            await update.message.reply_text(response_text, reply_markup=ReplyKeyboardRemove())
-        else:
-            keyboard = [[KeyboardButton("✅ اتمام تنظیمات")]]
-            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-            response_text = f"""
-✅ **'{task_text}' ثبت شد!**
-
-📋 **کارهای ثبت شده ({tasks_count}):**
-{tasks_list}
-
-🎯 **برای اتمام «✅ اتمام تنظیمات» رو بزن...**
-            """
-            await update.message.reply_text(response_text, reply_markup=reply_markup)
-        
-        return SETUP_TASKS
-    else:
-        await update.message.reply_text("❌ لطفاً یک کار معتبر وارد کن (حداقل ۲ حرف):")
-        return SETUP_TASKS
-
-async def done_setup(update: Update, context: CallbackContext) -> int:
-    user_id = str(update.effective_user.id)
-    
-    if len(users_db[user_id]["daily_tasks"]) < 1:
-        await update.message.reply_text(
-            "❌ **حداقل یک کار باید ثبت کنی!**\n\nاولین کارت رو بنویس...",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return SETUP_TASKS
-    
-    users_db[user_id]["setup_complete"] = True
-    Database.save(users_db)
-    
-    tasks_list = format_task_list(users_db[user_id]["daily_tasks"], show_completion=False)
-    tasks_count = len(users_db[user_id]["daily_tasks"])
-    
-    completion_text = f"""
-🎉 **تنظیمات تکمیل شد!**
-
-{get_all_dates()}
-
-📋 **کارهای ثبت شده ({tasks_count}):**
-{tasks_list}
-
-🏠 **حالا می‌تونی از منوی اصلی استفاده کنی:**
-    """
-    
-    await update.message.reply_text(completion_text, reply_markup=ReplyKeyboardRemove())
+💡 **اول برو به «🔧 مدیریت کارها» و کارهایت رو اضافه کن!**
+"""
+    await update.message.reply_text(welcome_text, reply_markup=ReplyKeyboardRemove())
     return await show_main_menu(update, context)
 
 async def show_main_menu(update: Update, context: CallbackContext) -> int:
-    user_id = str(update.effective_user.id)
-    user_data = users_db.get(user_id, {})
-    
-    total_tasks = len(user_data.get("daily_tasks", []))
-    completed_tasks = sum(1 for task in user_data.get("daily_tasks", []) if task.get("completed", False))
-    
-    menu_text = f"""
-🏠 **منوی اصلی**
-
-{get_all_dates()}
-
-📊 **وضعیت امروز:** {completed_tasks} از {total_tasks} تکمیل شده
-
-🎯 **گزینه‌های موجود:**
-    """
-    
     keyboard = [
-        [KeyboardButton("📋 کارهای امروز"), KeyboardButton("✅ تکمیل کارها")],
-        [KeyboardButton("➕ اضافه کردن کار"), KeyboardButton("📊 گزارش امروز")],
-        [KeyboardButton("⚙️ تنظیمات")]
+        [KeyboardButton("📅 برنامه امروز"), KeyboardButton("🔧 مدیریت کارها")],
+        [KeyboardButton("📋 مشاهده برنامه کاری"), KeyboardButton("✅ چک لیست امروز")],
+        [KeyboardButton("📊 آمار و گزارش")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text(menu_text, reply_markup=reply_markup)
+    await update.message.reply_text(
+        "🏠 **منوی اصلی**\n\n"
+        "لطفاً یکی از گزینه‌ها رو انتخاب کن:",
+        reply_markup=reply_markup
+    )
     return MAIN_MENU
 
-async def show_today_tasks(update: Update, context: CallbackContext) -> int:
-    user_id = str(update.effective_user.id)
-    user_data = users_db[user_id]
-    
-    today_key = get_date_key()
-    user_data["last_active_date"] = today_key
-    Database.save(users_db)
-    
-    daily_tasks = format_task_list(user_data["daily_tasks"])
-    
-    message_text = f"""
-{get_all_dates()}
-
-📋 **کارهای امروز:**
-{daily_tasks}
-
-💡 از دکمه «✅ تکمیل کارها» استفاده کن.
-    """
-    
+async def show_manage_tasks_menu(update: Update, context: CallbackContext) -> int:
     keyboard = [
-        [KeyboardButton("✅ تکمیل کارها"), KeyboardButton("➕ اضافه کردن کار")],
-        [KeyboardButton("📊 گزارش امروز"), KeyboardButton("🏠 منوی اصلی")]
+        [KeyboardButton("➕ اضافه کار جدید"), KeyboardButton("✏️ ویرایش کار موجود")],
+        [KeyboardButton("🗑️ حذف کار"), KeyboardButton("🏠 منوی اصلی")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text(message_text, reply_markup=reply_markup)
-    return MAIN_MENU
+    await update.message.reply_text(
+        "🔧 **مدیریت کارها**\n\n"
+        "چه کاری می‌خوای انجام بدی؟",
+        reply_markup=reply_markup
+    )
+    return MANAGE_TASKS_MENU
 
-async def add_task(update: Update, context: CallbackContext) -> int:
+# سیستم انتخاب تاریخ پله‌ای
+async def select_year(update: Update, context: CallbackContext, purpose="add"):
     keyboard = [
-        [KeyboardButton("📅 امروز"), KeyboardButton("🗓️ تاریخ مشخص")],
+        [KeyboardButton("📅 ۱۴۰۴ (سال جاری)"), KeyboardButton("📅 ۱۴۰۵ (سال آینده)")],
+        [KeyboardButton("🏠 منوی اصلی")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    context.user_data["date_purpose"] = purpose
+    
+    await update.message.reply_text(
+        "📅 **انتخاب سال**\n\n"
+        "برای کدوم سال می‌خوای برنامه‌ریزی کنی؟",
+        reply_markup=reply_markup
+    )
+    return ADD_TASK_DATE_SELECT
+
+async def select_month(update: Update, context: CallbackContext, year):
+    context.user_data["selected_year"] = year
+    
+    keyboard = [
+        [KeyboardButton("فروردین"), KeyboardButton("اردیبهشت"), KeyboardButton("خرداد")],
+        [KeyboardButton("تیر"), KeyboardButton("مرداد"), KeyboardButton("شهریور")],
+        [KeyboardButton("مهر"), KeyboardButton("آبان"), KeyboardButton("آذر")],
+        [KeyboardButton("دی"), KeyboardButton("بهمن"), KeyboardButton("اسفند")],
         [KeyboardButton("🏠 منوی اصلی")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     await update.message.reply_text(
-        "📅 **برای کدوم تاریخ می‌خوای کار اضافه کنی؟**\n\n"
-        "• 📅 امروز: برای کارهای امروز\n"
-        "• 🗓️ تاریخ مشخص: برای تاریخ‌های دیگر",
+        f"📅 **انتخاب ماه - سال {year}**\n\n"
+        "کدوم ماه رو انتخاب می‌کنی؟",
         reply_markup=reply_markup
     )
-    return ADD_TASK_DATE
+    return ADD_TASK_DATE_SELECT
 
-async def handle_task_date(update: Update, context: CallbackContext) -> int:
-    user_id = str(update.effective_user.id)
-    date_choice = update.message.text
+async def select_day(update: Update, context: CallbackContext, year, month):
+    context.user_data["selected_month"] = month
     
-    if "منوی اصلی" in date_choice:
-        await show_main_menu(update, context)
-        return MAIN_MENU
+    month_numbers = {
+        "فروردین": 1, "اردیبهشت": 2, "خرداد": 3,
+        "تیر": 4, "مرداد": 5, "شهریور": 6,
+        "مهر": 7, "آبان": 8, "آذر": 9,
+        "دی": 10, "بهمن": 11, "اسفند": 12
+    }
+    month_num = month_numbers.get(month, 1)
     
-    today = datetime.now()
+    keyboard = []
+    row = []
     
-    if "امروز" in date_choice:
-        selected_date = today
-        date_display = "امروز"
-        date_key = selected_date.strftime("%Y-%m-%d")
-        
-        context.user_data["selected_date"] = date_key
-        context.user_data["date_display"] = date_display
-        
-        await update.message.reply_text(
-            f"📅 **تاریخ:** {date_display}\n\n"
-            "📝 **حالا نام کار رو وارد کن:**",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ADD_TASK_NAME
-        
-    elif "تاریخ مشخص" in date_choice:
-        await update.message.reply_text(
-            "🗓️ **تاریخ مورد نظرت رو به این فرمت وارد کن:**\n\n"
-            "📌 **مثال‌ها:**\n"
-            "• فردا\n"
-            "• 1403/10/15\n"
-            "• 2024-01-05",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return ADD_TASK_NAME
+    days_in_month = 31 if month_num <= 6 else 30
+    if month_num == 12:
+        days_in_month = 29
+    
+    for day in range(1, days_in_month + 1):
+        row.append(KeyboardButton(str(day)))
+        if len(row) == 7:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    
+    keyboard.append([KeyboardButton("🏠 منوی اصلی")])
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     await update.message.reply_text(
-        "❌ لطفاً از دکمه‌ها استفاده کن.",
-        reply_markup=ReplyKeyboardRemove()
+        f"📅 **انتخاب روز - {month} {year}**\n\n"
+        "روز مورد نظرت رو انتخاب کن:",
+        reply_markup=reply_markup
     )
-    return ADD_TASK_DATE
+    return ADD_TASK_DATE_SELECT
 
-async def handle_task_name(update: Update, context: CallbackContext) -> int:
+async def handle_date_selection(update: Update, context: CallbackContext) -> int:
+    selection = update.message.text
+    purpose = context.user_data.get("date_purpose", "add")
+    
+    if "منوی اصلی" in selection:
+        return await show_main_menu(update, context)
+    
+    if "۱۴۰۴" in selection or "۱۴۰۵" in selection:
+        year = 1404 if "۱۴۰۴" in selection else 1405
+        return await select_month(update, context, year)
+    
+    months = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", 
+              "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]
+    if selection in months:
+        year = context.user_data.get("selected_year", 1404)
+        return await select_day(update, context, year, selection)
+    
+    if selection.isdigit():
+        day = int(selection)
+        year = context.user_data.get("selected_year", 1404)
+        month = context.user_data.get("selected_month", "فروردین")
+        
+        month_numbers = {
+            "فروردین": 1, "اردیبهشت": 2, "خرداد": 3,
+            "تیر": 4, "مرداد": 5, "شهریور": 6,
+            "مهر": 7, "آبان": 8, "آذر": 9,
+            "دی": 10, "بهمن": 11, "اسفند": 12
+        }
+        month_num = month_numbers.get(month, 1)
+        
+        try:
+            jdate = jdatetime.date(year, month_num, day)
+            gregorian_date = jdate.togregorian()
+            date_key = get_date_key(gregorian_date)
+            
+            context.user_data["selected_date"] = date_key
+            context.user_data["date_display"] = f"{day} {month} {year}"
+            
+            if purpose == "add":
+                await update.message.reply_text(
+                    f"📝 **کارهای {day} {month} {year}**\n\n"
+                    "کارهایت رو به صورت خط به خط وارد کن:\n\n"
+                    "📌 **مثال:**\n"
+                    "ورزش صبحگاهی\n"
+                    "مطالعه ۳۰ دقیقه\n"
+                    "پروژه برنامه‌نویسی\n\n"
+                    "پس از اتمام «✅ ثبت نهایی» رو بفرست.",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                return ADD_TASK_CONTENT
+            elif purpose == "edit":
+                return await show_edit_tasks(update, context, date_key)
+            elif purpose == "delete":
+                return await show_delete_tasks(update, context, date_key)
+            elif purpose == "view":
+                return await show_tasks_for_date(update, context, date_key, f"{day} {month} {year}")
+            
+        except Exception as e:
+            logging.error(f"Error converting date: {e}")
+            await update.message.reply_text("❌ تاریخ نامعتبر!")
+            return await show_main_menu(update, context)
+    
+    return ADD_TASK_DATE_SELECT
+
+async def handle_add_task_content(update: Update, context: CallbackContext) -> int:
     user_id = str(update.effective_user.id)
-    task_name = update.message.text.strip()
+    tasks_text = update.message.text.strip()
     
-    if not task_name or len(task_name) < 2:
-        await update.message.reply_text("❌ لطفاً یک نام معتبر برای کار وارد کن (حداقل ۲ حرف):")
-        return ADD_TASK_NAME
+    if tasks_text == "✅ ثبت نهایی":
+        await update.message.reply_text("❌ هیچ کاری وارد نکردی!")
+        return ADD_TASK_CONTENT
     
-    if context.user_data.get("selected_date"):
-        selected_date = context.user_data["selected_date"]
-        date_display = context.user_data.get("date_display", "نامشخص")
-        
-        if selected_date not in users_db[user_id]["dated_tasks"]:
-            users_db[user_id]["dated_tasks"][selected_date] = []
-        
-        users_db[user_id]["dated_tasks"][selected_date].append({
+    tasks_list = [task.strip() for task in tasks_text.split('\n') if task.strip()]
+    
+    if not tasks_list:
+        await update.message.reply_text("❌ هیچ کار معتبری وارد نکردی!")
+        return ADD_TASK_CONTENT
+    
+    date_key = context.user_data.get("selected_date", get_date_key())
+    date_display = context.user_data.get("date_display", "امروز")
+    
+    if date_key not in users_db[user_id]["dated_tasks"]:
+        users_db[user_id]["dated_tasks"][date_key] = []
+    
+    for task_name in tasks_list:
+        users_db[user_id]["dated_tasks"][date_key].append({
             "name": task_name,
             "completed": False,
             "created_at": get_date_key(),
             "type": "special"
         })
+    
+    Database.save(users_db)
+    
+    tasks_count = len(tasks_list)
+    tasks_preview = "\n".join([f"• {task}" for task in tasks_list[:5]])
+    if tasks_count > 5:
+        tasks_preview += f"\n• و {tasks_count - 5} کار دیگر..."
+    
+    await update.message.reply_text(
+        f"✅ **{tasks_count} کار با موفقیت ثبت شد!**\n\n"
+        f"📅 **تاریخ:** {date_display}\n"
+        f"📋 **کارها:**\n{tasks_preview}"
+    )
+    
+    return await show_main_menu(update, context)
+
+async def show_edit_tasks(update: Update, context: CallbackContext, date_key):
+    user_id = str(update.effective_user.id)
+    
+    tasks = []
+    if date_key in users_db[user_id].get("dated_tasks", {}):
+        tasks = users_db[user_id]["dated_tasks"][date_key]
+    
+    if not tasks:
+        await update.message.reply_text("📝 هیچ کاری برای ویرایش وجود نداره!")
+        return await show_main_menu(update, context)
+    
+    keyboard = []
+    for i, task in enumerate(tasks, 1):
+        keyboard.append([KeyboardButton(f"{i}. ✏️ {task['name'][:30]}")])
+    
+    keyboard.append([KeyboardButton("🏠 منوی اصلی")])
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    tasks_list = "\n".join([f"{i}. {task['name']}" for i, task in enumerate(tasks, 1)])
+    
+    await update.message.reply_text(
+        f"✏️ **ویرایش کارها**\n\n"
+        f"کدوم کار رو می‌خوای ویرایش کنی؟\n\n"
+        f"{tasks_list}",
+        reply_markup=reply_markup
+    )
+    
+    context.user_data["edit_tasks"] = tasks
+    context.user_data["edit_date_key"] = date_key
+    return EDIT_TASK_SELECT
+
+async def handle_edit_task_select(update: Update, context: CallbackContext) -> int:
+    selection = update.message.text
+    
+    if "منوی اصلی" in selection:
+        return await show_main_menu(update, context)
+    
+    if selection and selection[0].isdigit():
+        try:
+            task_number = int(selection.split(".")[0])
+            tasks = context.user_data.get("edit_tasks", [])
+            
+            if 1 <= task_number <= len(tasks):
+                context.user_data["editing_task_index"] = task_number - 1
+                old_task_name = tasks[task_number - 1]["name"]
+                
+                await update.message.reply_text(
+                    f"✏️ **ویرایش کار**\n\n"
+                    f"کار فعلی: {old_task_name}\n\n"
+                    f"نام جدید رو وارد کن:",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                return EDIT_TASK_ACTION
+        except Exception as e:
+            logging.error(f"Error in edit selection: {e}")
+    
+    await update.message.reply_text("❌ لطفاً از گزینه‌ها استفاده کن")
+    return EDIT_TASK_SELECT
+
+async def handle_edit_task_action(update: Update, context: CallbackContext) -> int:
+    user_id = str(update.effective_user.id)
+    new_task_name = update.message.text.strip()
+    
+    if not new_task_name:
+        await update.message.reply_text("❌ نام کار نمی‌تونه خالی باشه!")
+        return EDIT_TASK_ACTION
+    
+    task_index = context.user_data.get("editing_task_index")
+    date_key = context.user_data.get("edit_date_key")
+    tasks = context.user_data.get("edit_tasks", [])
+    
+    if task_index is not None and date_key and tasks:
+        old_name = tasks[task_index]["name"]
+        tasks[task_index]["name"] = new_task_name
         
+        # آپدیت در دیتابیس
+        users_db[user_id]["dated_tasks"][date_key] = tasks
         Database.save(users_db)
         
         await update.message.reply_text(
-            f"✅ **کار با موفقیت ثبت شد!**\n\n"
-            f"📝 **کار:** {task_name}\n"
-            f"📅 **تاریخ:** {date_display}"
-        )
-    else:
-        today_key = get_date_key()
-        if today_key not in users_db[user_id]["dated_tasks"]:
-            users_db[user_id]["dated_tasks"][today_key] = []
-        
-        users_db[user_id]["dated_tasks"][today_key].append({
-            "name": task_name,
-            "completed": False,
-            "created_at": get_date_key(),
-            "type": "special"
-        })
-        
-        Database.save(users_db)
-        
-        await update.message.reply_text(
-            f"✅ **کار با موفقیت برای امروز ثبت شد!**\n\n"
-            f"📝 **کار:** {task_name}"
+            f"✅ **کار ویرایش شد!**\n\n"
+            f"📝 **قدیمی:** {old_name}\n"
+            f"📝 **جدید:** {new_task_name}"
         )
     
     return await show_main_menu(update, context)
 
-async def complete_tasks(update: Update, context: CallbackContext) -> int:
+async def show_delete_tasks(update: Update, context: CallbackContext, date_key):
     user_id = str(update.effective_user.id)
-    user_data = users_db[user_id]
     
-    today_key = get_date_key()
-    all_tasks = []
+    tasks = []
+    if date_key in users_db[user_id].get("dated_tasks", {}):
+        tasks = users_db[user_id]["dated_tasks"][date_key]
     
-    for task in user_data["daily_tasks"]:
-        all_tasks.append(("daily", task))
-    
-    if today_key in user_data["dated_tasks"]:
-        for task in user_data["dated_tasks"][today_key]:
-            all_tasks.append(("dated", task))
-    
-    if not all_tasks:
-        await update.message.reply_text("📝 امروز هیچ کاری برای تکمیل وجود نداره!")
+    if not tasks:
+        await update.message.reply_text("📝 هیچ کاری برای حذف وجود نداره!")
         return await show_main_menu(update, context)
     
     keyboard = []
-    for i, (task_type, task) in enumerate(all_tasks, 1):
-        status = "✅" if task.get("completed", False) else "◻️"
-        task_name = task['name'][:20] + "..." if len(task['name']) > 20 else task['name']
-        keyboard.append([KeyboardButton(f"{i}. {status} {task_name}")])
+    for i, task in enumerate(tasks, 1):
+        keyboard.append([KeyboardButton(f"{i}. 🗑️ {task['name'][:30]}")])
     
     keyboard.append([KeyboardButton("🏠 منوی اصلی")])
-    
-    context.user_data["current_tasks"] = all_tasks
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
+    tasks_list = "\n".join([f"{i}. {task['name']}" for i, task in enumerate(tasks, 1)])
+    
     await update.message.reply_text(
-        "✅ **کدام کار رو تکمیل کردی؟**\n\n"
-        "روی کار مورد نظر کلیک کن تا وضعیتش تغییر کنه:",
+        f"🗑️ **حذف کارها**\n\n"
+        f"کدوم کار رو می‌خوای حذف کنی؟\n\n"
+        f"{tasks_list}",
         reply_markup=reply_markup
     )
-    return COMPLETE_TASKS
+    
+    context.user_data["delete_tasks"] = tasks
+    context.user_data["delete_date_key"] = date_key
+    return DELETE_TASK_SELECT
 
-async def handle_task_completion(update: Update, context: CallbackContext) -> int:
+async def handle_delete_task_select(update: Update, context: CallbackContext) -> int:
+    user_id = str(update.effective_user.id)
+    selection = update.message.text
+    
+    if "منوی اصلی" in selection:
+        return await show_main_menu(update, context)
+    
+    if selection and selection[0].isdigit():
+        try:
+            task_number = int(selection.split(".")[0])
+            tasks = context.user_data.get("delete_tasks", [])
+            date_key = context.user_data.get("delete_date_key")
+            
+            if 1 <= task_number <= len(tasks):
+                deleted_task = tasks[task_number - 1]
+                
+                # حذف از دیتابیس
+                users_db[user_id]["dated_tasks"][date_key].pop(task_number - 1)
+                
+                # اگر لیست خالی شد، تاریخ رو حذف کن
+                if not users_db[user_id]["dated_tasks"][date_key]:
+                    del users_db[user_id]["dated_tasks"][date_key]
+                
+                Database.save(users_db)
+                
+                await update.message.reply_text(
+                    f"✅ **کار حذف شد!**\n\n"
+                    f"🗑️ **کار حذف شده:** {deleted_task['name']}"
+                )
+                
+                return await show_main_menu(update, context)
+        except Exception as e:
+            logging.error(f"Error in delete selection: {e}")
+    
+    await update.message.reply_text("❌ لطفاً از گزینه‌ها استفاده کن")
+    return DELETE_TASK_SELECT
+
+async def view_tasks_select_date(update: Update, context: CallbackContext) -> int:
+    return await select_year(update, context, "view")
+
+async def show_tasks_for_date(update: Update, context: CallbackContext, date_key, date_display):
+    user_id = str(update.effective_user.id)
+    
+    all_tasks = []
+    
+    # اگر تاریخ امروز باشد، کارهای روزانه را هم نشان بده
+    if date_key == get_date_key():
+        for task in users_db[user_id].get("daily_tasks", []):
+            status = "✅" if task.get("completed", False) else "◻️"
+            all_tasks.append(f"📅 {status} {task['name']}")
+    
+    # کارهای ویژه آن تاریخ
+    if date_key in users_db[user_id].get("dated_tasks", {}):
+        for task in users_db[user_id]["dated_tasks"][date_key]:
+            status = "✅" if task.get("completed", False) else "◻️"
+            all_tasks.append(f"⭐ {status} {task['name']}")
+    
+    tasks_text = "\n".join(all_tasks) if all_tasks else "📝 هیچ کاری برای این تاریخ ثبت نشده"
+    
+    # نمایش تاریخ
+    try:
+        date_obj = datetime.strptime(date_key, "%Y-%m-%d")
+        jdate = jdatetime.datetime.fromgregorian(datetime=date_obj)
+        
+        persian_days = {
+            'Saturday': 'شنبه', 'Sunday': 'یکشنبه', 'Monday': 'دوشنبه',
+            'Tuesday': 'سه‌شنبه', 'Wednesday': 'چهارشنبه',
+            'Thursday': 'پنجشنبه', 'Friday': 'جمعه'
+        }
+        english_day = date_obj.strftime('%A')
+        persian_day = persian_days.get(english_day, english_day)
+        
+        date_info = f"""
+📅 **تاریخ درخواستی:**
+
+🇮🇷 **شمسی:** {jdate.strftime('%Y/%m/%d')} - {jdate.strftime('%A')}
+🌍 **میلادی:** {date_obj.strftime('%Y-%m-%d')} - {persian_day}
+"""
+    except:
+        date_info = f"📅 **تاریخ:** {date_display}"
+    
+    response_text = f"""
+{date_info}
+
+📋 **برنامه کاری:**
+
+{tasks_text}
+"""
+    
+    keyboard = [[KeyboardButton("🏠 منوی اصلی")]]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(response_text, reply_markup=reply_markup)
+    return MAIN_MENU
+
+async def show_today_tasks(update: Update, context: CallbackContext) -> int:
+    user_id = str(update.effective_user.id)
+    today_key = get_date_key()
+    
+    all_tasks = []
+    
+    # کارهای روزانه
+    for task in users_db[user_id].get("daily_tasks", []):
+        status = "✅" if task.get("completed", False) else "◻️"
+        all_tasks.append(f"📅 {status} {task['name']}")
+    
+    # کارهای ویژه امروز
+    if today_key in users_db[user_id].get("dated_tasks", {}):
+        for task in users_db[user_id]["dated_tasks"][today_key]:
+            status = "✅" if task.get("completed", False) else "◻️"
+            all_tasks.append(f"⭐ {status} {task['name']}")
+    
+    tasks_text = "\n".join(all_tasks) if all_tasks else "📝 هیچ کاری برای امروز ثبت نشده"
+    
+    response_text = f"""
+{get_three_calendars()}
+
+📅 **برنامه امروز:**
+
+{tasks_text}
+"""
+    
+    keyboard = [
+        [KeyboardButton("🔧 مدیریت کارها"), KeyboardButton("✅ چک لیست امروز")],
+        [KeyboardButton("🏠 منوی اصلی")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(response_text, reply_markup=reply_markup)
+    return MAIN_MENU
+
+async def show_checklist(update: Update, context: CallbackContext) -> int:
+    user_id = str(update.effective_user.id)
+    today_key = get_date_key()
+    
+    checklist_tasks = []
+    
+    # کارهای روزانه
+    for task in users_db[user_id].get("daily_tasks", []):
+        checklist_tasks.append({
+            "name": task["name"],
+            "completed": task.get("completed", False),
+            "type": "daily"
+        })
+    
+    # کارهای ویژه امروز
+    if today_key in users_db[user_id].get("dated_tasks", {}):
+        for task in users_db[user_id]["dated_tasks"][today_key]:
+            checklist_tasks.append({
+                "name": task["name"],
+                "completed": task.get("completed", False),
+                "type": "special"
+            })
+    
+    if not checklist_tasks:
+        await update.message.reply_text("📝 امروز هیچ کاری برای چک لیست وجود نداره!")
+        return await show_main_menu(update, context)
+    
+    keyboard = []
+    for i, task in enumerate(checklist_tasks, 1):
+        status = "✅" if task["completed"] else "❌"
+        keyboard.append([KeyboardButton(f"{i}. {status} {task['name'][:30]}")])
+    
+    keyboard.append([KeyboardButton("💾 ثبت و ذخیره"), KeyboardButton("🏠 منوی اصلی")])
+    
+    context.user_data["checklist_tasks"] = checklist_tasks
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    checklist_text = "\n".join([f"{i}. {'✅' if task['completed'] else '❌'} {task['name']}" 
+                              for i, task in enumerate(checklist_tasks, 1)])
+    
+    await update.message.reply_text(
+        f"✅ **چک لیست امروز**\n\n"
+        f"{get_three_calendars()}\n"
+        f"{checklist_text}\n\n"
+        "روی هر کار کلیک کن تا وضعیتش تغییر کنه:",
+        reply_markup=reply_markup
+    )
+    return TASK_CHECKLIST
+
+async def handle_checklist_selection(update: Update, context: CallbackContext) -> int:
     user_id = str(update.effective_user.id)
     message_text = update.message.text
+    today_key = get_date_key()
     
     if "منوی اصلی" in message_text:
         return await show_main_menu(update, context)
     
-    if message_text and message_text[0].isdigit():
+    elif "ثبت و ذخیره" in message_text:
+        await update.message.reply_text("✅ وضعیت کارها ذخیره شد!")
+        return await show_main_menu(update, context)
+    
+    elif message_text and message_text[0].isdigit():
         try:
             task_number = int(message_text.split(".")[0])
-            all_tasks = context.user_data.get("current_tasks", [])
+            checklist_tasks = context.user_data.get("checklist_tasks", [])
             
-            if 1 <= task_number <= len(all_tasks):
-                task_type, task = all_tasks[task_number - 1]
-                task["completed"] = not task.get("completed", False)
+            if 1 <= task_number <= len(checklist_tasks):
+                task = checklist_tasks[task_number - 1]
+                task["completed"] = not task["completed"]
+                
+                # آپدیت در دیتابیس
+                if task["type"] == "daily":
+                    for db_task in users_db[user_id]["daily_tasks"]:
+                        if db_task["name"] == task["name"]:
+                            db_task["completed"] = task["completed"]
+                else:
+                    for db_task in users_db[user_id]["dated_tasks"][today_key]:
+                        if db_task["name"] == task["name"]:
+                            db_task["completed"] = task["completed"]
                 
                 Database.save(users_db)
-                status = "تکمیل شد ✅" if task["completed"] else "در انتظار ◻️"
+                
+                status = "تکمیل شد ✅" if task["completed"] else "لغو تکمیل ❌"
                 await update.message.reply_text(f"✅ کار '{task['name']}' {status}!")
             
-            return await complete_tasks(update, context)
+            return await show_checklist(update, context)
             
         except Exception as e:
-            logging.error(f"Error completing task: {e}")
-            await update.message.reply_text("❌ خطا در به روزرسانی کار")
+            logging.error(f"Error in checklist: {e}")
+            await update.message.reply_text("❌ خطا در به‌روزرسانی کار")
     
-    return await complete_tasks(update, context)
+    return await show_checklist(update, context)
 
-async def show_report(update: Update, context: CallbackContext) -> int:
+async def show_stats(update: Update, context: CallbackContext) -> int:
+    keyboard = [
+        [KeyboardButton("📊 ۵ روز گذشته"), KeyboardButton("📊 ۱۰ روز گذشته")],
+        [KeyboardButton("📊 این هفته"), KeyboardButton("📊 این ماه")],
+        [KeyboardButton("📊 امسال"), KeyboardButton("🏠 منوی اصلی")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        "📊 **آمار و گزارش**\n\n"
+        "برای کدوم بازه زمانی می‌خوای آمار ببینی؟",
+        reply_markup=reply_markup
+    )
+    return STATS_PERIOD
+
+async def handle_stats_period(update: Update, context: CallbackContext) -> int:
     user_id = str(update.effective_user.id)
-    user_data = users_db[user_id]
+    period = update.message.text
     
-    total_daily_tasks = len(user_data["daily_tasks"])
-    completed_today = sum(1 for task in user_data["daily_tasks"] if task.get("completed", False))
+    if "منوی اصلی" in period:
+        return await show_main_menu(update, context)
     
-    today_key = get_date_key()
-    dated_today = user_data["dated_tasks"].get(today_key, [])
-    completed_dated = sum(1 for task in dated_today if task.get("completed", False))
+    end_date = datetime.now()
     
-    total_today = total_daily_tasks + len(dated_today)
-    completed_total = completed_today + completed_dated
+    if "۵ روز" in period:
+        start_date = end_date - timedelta(days=5)
+        period_name = "۵ روز گذشته"
+    elif "۱۰ روز" in period:
+        start_date = end_date - timedelta(days=10)
+        period_name = "۱۰ روز گذشته"
+    elif "هفته" in period:
+        start_date = end_date - timedelta(days=7)
+        period_name = "این هفته"
+    elif "ماه" in period:
+        start_date = end_date - timedelta(days=30)
+        period_name = "این ماه"
+    elif "امسال" in period:
+        start_date = datetime(end_date.year, 1, 1)
+        period_name = f"امسال ({end_date.year})"
+    else:
+        return await show_stats(update, context)
     
-    progress = round((completed_total / total_today) * 100) if total_today > 0 else 0
+    total_tasks = 0
+    completed_tasks = 0
+    current_date = start_date
     
-    progress_bar = "🟩" * completed_total + "⬜" * (total_today - completed_total)
+    while current_date <= end_date:
+        date_key = get_date_key(current_date)
+        
+        # کارهای روزانه
+        for task in users_db[user_id].get("daily_tasks", []):
+            total_tasks += 1
+            if task.get("completed", False):
+                completed_tasks += 1
+        
+        # کارهای ویژه
+        if date_key in users_db[user_id].get("dated_tasks", {}):
+            for task in users_db[user_id]["dated_tasks"][date_key]:
+                total_tasks += 1
+                if task.get("completed", False):
+                    completed_tasks += 1
+        
+        current_date += timedelta(days=1)
     
-    report_text = f"""
-📊 **گزارش امروز**
-
-{get_all_dates()}
+    completion_rate = round((completed_tasks / total_tasks) * 100) if total_tasks > 0 else 0
+    
+    progress_bar = "🟩" * (completed_tasks // max(1, total_tasks // 10)) + "⬜" * (10 - (completed_tasks // max(1, total_tasks // 10)))
+    
+    stats_text = f"""
+📊 **آمار {period_name}**
 
 {progress_bar}
-✅ **کارهای انجام شده:** {completed_total} از {total_today}
-📈 **پیشرفت:** {progress}%
+✅ **کارهای انجام شده:** {completed_tasks} از {total_tasks}
+📈 **نرخ تکمیل:** {completion_rate}%
 
-{"🎉 عالی! همه کارها انجام شد!" if completed_total == total_today else "💪 ادامه بده!" if completed_total > 0 else "🚀 شروع کن!"}
-    """
-    
-    await update.message.reply_text(report_text)
-    return MAIN_MENU
+📅 **بازه زمانی:** 
+{start_date.strftime('%Y-%m-%d')} تا {end_date.strftime('%Y-%m-%d')}
 
-async def show_settings(update: Update, context: CallbackContext) -> int:
-    user_id = str(update.effective_user.id)
-    user_data = users_db[user_id]
+{"🎉 عملکرد عالی!" if completion_rate >= 80 else "💪 خوبه، ادامه بده!" if completion_rate >= 50 else "🚀 نیاز به تلاش بیشتر!"}
+"""
     
-    total_completed = sum(1 for task in user_data["daily_tasks"] if task.get("completed", False))
-    
-    settings_text = f"""
-⚙️ **تنظیمات کاربری**
+    await update.message.reply_text(stats_text)
+    return await show_main_menu(update, context)
 
-👤 **کاربر:** {user_data.get('user_name', 'نامشخص')}
-📅 **عضو since:** {user_data.get('created_at', 'نامشخص')}
-
-📊 **آمار:**
-📋 کارهای روزانه: {len(user_data["daily_tasks"])}
-✅ تکمیل شده: {total_completed}
-    """
+def send_daily_checklists():
+    """ارسال پیام چک لیست روزانه به همه کاربران"""
+    now = datetime.now()
+    today_key = get_date_key(now)
     
-    await update.message.reply_text(settings_text)
-    return MAIN_MENU
+    for user_id, user_data in users_db.items():
+        try:
+            if user_data.get("last_checklist_date") != today_key:
+                logging.info(f"Should send checklist to user {user_id}")
+                user_data["last_checklist_date"] = today_key
+        except Exception as e:
+            logging.error(f"Error sending checklist to {user_id}: {e}")
+    
+    Database.save(users_db)
+
+def setup_scheduler():
+    """تنظیم زمان‌بند برای ارسال پیام‌های خودکار"""
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(
+        send_daily_checklists,
+        trigger=CronTrigger(hour=8, minute=0, timezone=pytz.utc),
+        id='daily_checklists'
+    )
+    scheduler.start()
 
 def main():
     if not TOKEN:
@@ -500,25 +792,43 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            SETUP_TASKS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, setup_tasks)
-            ],
             MAIN_MENU: [
                 MessageHandler(filters.Regex("^🏠 منوی اصلی$"), show_main_menu),
-                MessageHandler(filters.Regex("^📋 کارهای امروز$"), show_today_tasks),
-                MessageHandler(filters.Regex("^📊 گزارش امروز$"), show_report),
-                MessageHandler(filters.Regex("^✅ تکمیل کارها$"), complete_tasks),
-                MessageHandler(filters.Regex("^➕ اضافه کردن کار$"), add_task),
-                MessageHandler(filters.Regex("^⚙️ تنظیمات$"), show_settings)
+                MessageHandler(filters.Regex("^📅 برنامه امروز$"), show_today_tasks),
+                MessageHandler(filters.Regex("^🔧 مدیریت کارها$"), show_manage_tasks_menu),
+                MessageHandler(filters.Regex("^📋 مشاهده برنامه کاری$"), view_tasks_select_date),
+                MessageHandler(filters.Regex("^✅ چک لیست امروز$"), show_checklist),
+                MessageHandler(filters.Regex("^📊 آمار و گزارش$"), show_stats)
             ],
-            ADD_TASK_DATE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_task_date)
+            MANAGE_TASKS_MENU: [
+                MessageHandler(filters.Regex("^➕ اضافه کار جدید$"), lambda u, c: select_year(u, c, "add")),
+                MessageHandler(filters.Regex("^✏️ ویرایش کار موجود$"), lambda u, c: select_year(u, c, "edit")),
+                MessageHandler(filters.Regex("^🗑️ حذف کار$"), lambda u, c: select_year(u, c, "delete")),
+                MessageHandler(filters.Regex("^🏠 منوی اصلی$"), show_main_menu)
             ],
-            ADD_TASK_NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_task_name)
+            ADD_TASK_DATE_SELECT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date_selection)
             ],
-            COMPLETE_TASKS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_task_completion)
+            ADD_TASK_CONTENT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_add_task_content)
+            ],
+            EDIT_TASK_SELECT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_task_select)
+            ],
+            EDIT_TASK_ACTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_edit_task_action)
+            ],
+            DELETE_TASK_SELECT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_delete_task_select)
+            ],
+            VIEW_TASKS_DATE_SELECT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date_selection)
+            ],
+            TASK_CHECKLIST: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_checklist_selection)
+            ],
+            STATS_PERIOD: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_stats_period)
             ]
         },
         fallbacks=[CommandHandler("start", start)],
@@ -528,18 +838,20 @@ def main():
     application.add_handler(conv_handler)
     
     application.add_handler(CommandHandler("today", show_today_tasks))
-    application.add_handler(CommandHandler("add", add_task))
-    application.add_handler(CommandHandler("complete", complete_tasks))
-    application.add_handler(CommandHandler("report", show_report))
-    application.add_handler(CommandHandler("settings", show_settings))
+    application.add_handler(CommandHandler("add", lambda u, c: select_year(u, c, "add")))
+    application.add_handler(CommandHandler("view", view_tasks_select_date))
+    application.add_handler(CommandHandler("checklist", show_checklist))
+    application.add_handler(CommandHandler("stats", show_stats))
     
     print("🚀 Starting web server for Render...")
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
+    
+    print("⏰ Setting up daily checklists scheduler...")
+    setup_scheduler()
     
     print("🤖 ربات فعال شد!")
     application.run_polling()
 
 if __name__ == '__main__':
     main()
-
