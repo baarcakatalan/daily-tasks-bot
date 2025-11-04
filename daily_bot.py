@@ -836,26 +836,13 @@ def main():
     
     print("⏰ Setting up daily checklists scheduler...")
     setup_scheduler()
-    # تشخیص محیط اجرا
-    if os.environ.get('RENDER'):
-        # حالت Webhook برای رندر
-        PORT = int(os.environ.get('PORT', 10000))
-        WEBHOOK_URL = f"https://daily-tasks-bot.onrender.com"  # ❗ اینجا اسم پروژه خودت رو بنویس
-        
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            webhook_url=f"{WEBHOOK_URL}/{TOKEN}",
-            secret_token='WEBHOOK_SECRET'
-        )
-    else:
-        # حالت Polling برای اجرای محلی
-        print("🤖 ربات فعال شد! (Polling Mode)")
-        application.run_polling()
+    print("🤖 ربات فعال شد! (Polling Mode)")
+    application.run_polling()
     
     
 
 if __name__ == '__main__':
     main()
+
 
 
