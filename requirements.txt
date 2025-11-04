@@ -3,6 +3,8 @@ jdatetime==4.1.0
 flask==2.3.3
 apscheduler==3.10.1
 python-dateutil==2.8.2
+pytz==2023.3
+
 
 
 
