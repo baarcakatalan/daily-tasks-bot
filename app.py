@@ -14,6 +14,8 @@ def health():
     return "✅ Bot is healthy!"
 
 def run_bot():
+    import asyncio
+    asyncio.set_event_loop(asyncio.new_event_loop())
     daily_bot.main()  # اجرای تابع اصلی ربات
 
 if __name__ == '__main__':
@@ -23,3 +25,4 @@ if __name__ == '__main__':
 
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
+
