@@ -44,18 +44,17 @@ class Database:
         except Exception as e:
             logging.error(f"Error saving database: {e}")
 
-# بارگذاری دیتابیس
 users_db = Database.load()
 
 def get_three_calendars():
     now = datetime.now()
     jdate = jdatetime.datetime.now()
     
-    hijri_date = "۱۴۴۵/۰۶/۲۳"
+    hijri_date = "1445/06/23"
     
     persian_days = {
         'Saturday': 'شنبه', 'Sunday': 'یکشنبه', 'Monday': 'دوشنبه',
-        'Tuesday': 'سه‌شنبه', 'Wednesday': 'چهارشنبه',
+        'Tuesday': 'سه شنبه', 'Wednesday': 'چهارشنبه',
         'Thursday': 'پنجشنبه', 'Friday': 'جمعه'
     }
     
@@ -94,10 +93,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     welcome_text = f"""
 👋 **سلام {user_name} عزیز!**
 
-راستش من برای این اینجام تا هم توی مصرف کاغذ صرفه جویی بشه هم چیزی از قلم نیفته
-هر کاری که می‌خوای توی هر روزی انجام بدی رو بنویس 
-نگران نباش اگه چیزی از قلم افتاد میتونی دوباره بهش اضافه کنی یا ویرایش و حذف کنی
-همچنین امکاناتی مثل چک لیست و گزارش گیری هم برای شما در نظر گرفته شده
+ربات مدیریت کارهای روزانه
 
 🏠 **منوی اصلی شامل:**
 
@@ -122,7 +118,7 @@ async def show_main_menu(update: Update, context: CallbackContext) -> int:
     
     await update.message.reply_text(
         "🏠 **منوی اصلی**\n\n"
-        "لطفاً یکی از گزینه‌ها رو انتخاب کن:",
+        "لطفا یکی از گزینه ها رو انتخاب کن:",
         reply_markup=reply_markup
     )
     return MAIN_MENU
@@ -136,14 +132,14 @@ async def show_manage_tasks_menu(update: Update, context: CallbackContext) -> in
     
     await update.message.reply_text(
         "🔧 **مدیریت کارها**\n\n"
-        "چه کاری می‌خوای انجام بدی؟",
+        "چه کاری می خوای انجام بدی؟",
         reply_markup=reply_markup
     )
     return MANAGE_TASKS_MENU
 
 async def select_year(update: Update, context: CallbackContext, purpose="add"):
     keyboard = [
-        [KeyboardButton("📅 ۱۴۰۴ (سال جاری)"), KeyboardButton("📅 ۱۴۰۵ (سال آینده)")],
+        [KeyboardButton("📅 1404 (سال جاری)"), KeyboardButton("📅 1405 (سال آینده)")],
         [KeyboardButton("🏠 منوی اصلی")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -152,7 +148,7 @@ async def select_year(update: Update, context: CallbackContext, purpose="add"):
     
     await update.message.reply_text(
         "📅 **انتخاب سال**\n\n"
-        "برای کدوم سال می‌خوای برنامه‌ریزی کنی؟",
+        "برای کدوم سال می خوای برنامه ریزی کنی؟",
         reply_markup=reply_markup
     )
     return ADD_TASK_DATE_SELECT
@@ -171,7 +167,7 @@ async def select_month(update: Update, context: CallbackContext, year):
     
     await update.message.reply_text(
         f"📅 **انتخاب ماه - سال {year}**\n\n"
-        "کدوم ماه رو انتخاب می‌کنی؟",
+        "کدوم ماه رو انتخاب می کنی؟",
         reply_markup=reply_markup
     )
     return ADD_TASK_DATE_SELECT
@@ -219,8 +215,8 @@ async def handle_date_selection(update: Update, context: CallbackContext) -> int
     if "منوی اصلی" in selection:
         return await show_main_menu(update, context)
     
-    if "۱۴۰۴" in selection or "۱۴۰۵" in selection:
-        year = 1404 if "۱۴۰۴" in selection else 1405
+    if "1404" in selection or "1405" in selection:
+        year = 1404 if "1404" in selection else 1405
         return await select_month(update, context, year)
     
     months = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", 
@@ -256,8 +252,8 @@ async def handle_date_selection(update: Update, context: CallbackContext) -> int
                     "کارهایت رو به صورت خط به خط وارد کن:\n\n"
                     "📌 **مثال:**\n"
                     "ورزش صبحگاهی\n"
-                    "مطالعه ۳۰ دقیقه\n"
-                    "پروژه برنامه‌نویسی\n\n"
+                    "مطالعه 30 دقیقه\n"
+                    "پروژه برنامه نویسی\n\n"
                     "پس از اتمام «✅ ثبت نهایی» رو بفرست.",
                     reply_markup=ReplyKeyboardRemove()
                 )
@@ -341,7 +337,7 @@ async def show_edit_tasks(update: Update, context: CallbackContext, date_key):
     
     await update.message.reply_text(
         f"✏️ **ویرایش کارها**\n\n"
-        f"کدوم کار رو می‌خوای ویرایش کنی؟\n\n"
+        f"کدوم کار رو می خوای ویرایش کنی؟\n\n"
         f"{tasks_list}",
         reply_markup=reply_markup
     )
@@ -375,7 +371,7 @@ async def handle_edit_task_select(update: Update, context: CallbackContext) -> i
         except Exception as e:
             logging.error(f"Error in edit selection: {e}")
     
-    await update.message.reply_text("❌ لطفاً از گزینه‌ها استفاده کن")
+    await update.message.reply_text("❌ لطفا از گزینه ها استفاده کن")
     return EDIT_TASK_SELECT
 
 async def handle_edit_task_action(update: Update, context: CallbackContext) -> int:
@@ -383,7 +379,7 @@ async def handle_edit_task_action(update: Update, context: CallbackContext) -> i
     new_task_name = update.message.text.strip()
     
     if not new_task_name:
-        await update.message.reply_text("❌ نام کار نمی‌تونه خالی باشه!")
+        await update.message.reply_text("❌ نام کار نمی تونه خالی باشه!")
         return EDIT_TASK_ACTION
     
     task_index = context.user_data.get("editing_task_index")
@@ -427,7 +423,7 @@ async def show_delete_tasks(update: Update, context: CallbackContext, date_key):
     
     await update.message.reply_text(
         f"🗑️ **حذف کارها**\n\n"
-        f"کدوم کار رو می‌خوای حذف کنی؟\n\n"
+        f"کدوم کار رو می خوای حذف کنی؟\n\n"
         f"{tasks_list}",
         reply_markup=reply_markup
     )
@@ -468,7 +464,7 @@ async def handle_delete_task_select(update: Update, context: CallbackContext) ->
         except Exception as e:
             logging.error(f"Error in delete selection: {e}")
     
-    await update.message.reply_text("❌ لطفاً از گزینه‌ها استفاده کن")
+    await update.message.reply_text("❌ لطفا از گزینه ها استفاده کن")
     return DELETE_TASK_SELECT
 
 async def view_tasks_select_date(update: Update, context: CallbackContext) -> int:
@@ -497,7 +493,7 @@ async def show_tasks_for_date(update: Update, context: CallbackContext, date_key
         
         persian_days = {
             'Saturday': 'شنبه', 'Sunday': 'یکشنبه', 'Monday': 'دوشنبه',
-            'Tuesday': 'سه‌شنبه', 'Wednesday': 'چهارشنبه',
+            'Tuesday': 'سه شنبه', 'Wednesday': 'چهارشنبه',
             'Thursday': 'پنجشنبه', 'Friday': 'جمعه'
         }
         english_day = date_obj.strftime('%A')
@@ -646,13 +642,13 @@ async def handle_checklist_selection(update: Update, context: CallbackContext) -
             
         except Exception as e:
             logging.error(f"Error in checklist: {e}")
-            await update.message.reply_text("❌ خطا در به‌روزرسانی کار")
+            await update.message.reply_text("❌ خطا در به روزرسانی کار")
     
     return await show_checklist(update, context)
 
 async def show_stats(update: Update, context: CallbackContext) -> int:
     keyboard = [
-        [KeyboardButton("📊 ۵ روز گذشته"), KeyboardButton("📊 ۱۰ روز گذشته")],
+        [KeyboardButton("📊 5 روز گذشته"), KeyboardButton("📊 10 روز گذشته")],
         [KeyboardButton("📊 این هفته"), KeyboardButton("📊 این ماه")],
         [KeyboardButton("📊 امسال"), KeyboardButton("🏠 منوی اصلی")]
     ]
@@ -660,7 +656,7 @@ async def show_stats(update: Update, context: CallbackContext) -> int:
     
     await update.message.reply_text(
         "📊 **آمار و گزارش**\n\n"
-        "برای کدوم بازه زمانی می‌خوای آمار ببینی؟",
+        "برای کدوم بازه زمانی می خوای آمار ببینی؟",
         reply_markup=reply_markup
     )
     return STATS_PERIOD
@@ -674,12 +670,12 @@ async def handle_stats_period(update: Update, context: CallbackContext) -> int:
     
     end_date = datetime.now()
     
-    if "۵ روز" in period:
+    if "5 روز" in period:
         start_date = end_date - timedelta(days=5)
-        period_name = "۵ روز گذشته"
-    elif "۱۰ روز" in period:
+        period_name = "5 روز گذشته"
+    elif "10 روز" in period:
         start_date = end_date - timedelta(days=10)
-        period_name = "۱۰ روز گذشته"
+        period_name = "10 روز گذشته"
     elif "هفته" in period:
         start_date = end_date - timedelta(days=7)
         period_name = "این هفته"
@@ -748,7 +744,7 @@ def send_daily_checklists():
     Database.save(users_db)
 
 def setup_scheduler():
-    """تنظیم زمان‌بند برای ارسال پیام‌های خودکار"""
+    """تنظیم زمان بند برای ارسال پیام های خودکار"""
     scheduler = BackgroundScheduler()
     scheduler.add_job(
         send_daily_checklists,
@@ -830,10 +826,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-فایل‌های مورد نیاز:
-requirements.txt:
-text
-python-telegram-bot==20.7
-jdatetime==4.1.0
-apscheduler==3.10.4
-pytz==2023.3
