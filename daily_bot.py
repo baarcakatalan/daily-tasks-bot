@@ -836,12 +836,13 @@ async def main_async():
     print("⏰ Setting up daily checklists scheduler...")
     setup_scheduler()
     print("🤖 ربات فعال شد! (Polling Mode)")
-    await application.run_polling()
+    await application.run_polling(close_loop=False, stop_signals=None)
     
     
 
 if __name__ == '__main__':
     main()
+
 
 
 
