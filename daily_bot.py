@@ -841,8 +841,9 @@ async def main_async():
     
 
 if __name__ == "__main__":
-    import asyncio
+    print("🚀 Starting bot directly...")
     asyncio.run(main_async())
+
 
 
 
