@@ -1,8 +1,7 @@
 from flask import Flask
 import os
-import threading
 import asyncio
-import daily_bot  # اگه اسم فایل رباتت daily_bot2.py هست، اینجا هم daily_bot2 بنویس
+import daily_bot  # فایل ربات
 
 app = Flask(__name__)
 
@@ -14,17 +13,22 @@ def home():
 def health():
     return "✅ Bot is healthy!"
 
-def run_bot():
+async def main():
     print("🚀 Starting Telegram bot...")
-    asyncio.run(daily_bot.main_async())
-
-if __name__ == '__main__':
-    # اجرای ربات در ترد جداگانه تا Flask همزمان کار کنه
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.start()
+    # اجرای هم‌زمان Flask و ربات در یک حلقه
+    bot_task = asyncio.create_task(daily_bot.main_async())
 
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    # Flask را در یک ترد جدا راه‌اندازی می‌کنیم ولی در همان event loop
+    loop = asyncio.get_running_loop()
+    from threading import Thread
+    Thread(target=lambda: app.run(host='0.0.0.0', port=port)).start()
+
+    await bot_task  # منتظر اجرای ربات بمان
+
+if __name__ == '__main__':
+    asyncio.run(main())
+
 
 
 
