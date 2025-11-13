@@ -840,8 +840,10 @@ async def main_async():
     
     
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main_async())
+
 
 
 
