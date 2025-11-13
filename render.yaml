@@ -1,10 +1,7 @@
 services:
   - type: web
-    name: daily-bot
+    name: daily-tasks-bot
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python app.py
-    envVars:
-      - key: BOT_TOKEN
-        value: 8326076165:AAFSKnLwj1hBocdCIXpXrZl2TX2mOhW03B4
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python app.py"
