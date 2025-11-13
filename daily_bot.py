@@ -769,7 +769,7 @@ def setup_scheduler():
     )
     scheduler.start()
 
-def main():
+async def main_async():
     if not TOKEN:
         print("❌ ERROR: BOT_TOKEN environment variable is not set!")
         return
@@ -833,16 +833,16 @@ def main():
     application.add_handler(CommandHandler("checklist", show_checklist))
     application.add_handler(CommandHandler("stats", show_stats))
     
-    
     print("⏰ Setting up daily checklists scheduler...")
     setup_scheduler()
     print("🤖 ربات فعال شد! (Polling Mode)")
-    application.run_polling()
+    await application.run_polling()
     
     
 
 if __name__ == '__main__':
     main()
+
 
 
 
