@@ -1,21 +1,39 @@
 import os
 import logging
-import asyncio
+import threading
+import json
+from datetime import datetime
+from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler
-from datetime import datetime, timedelta
 import jdatetime
-import json
 
+# تنظیمات logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
+# حالت‌های گفتگو
 MAIN_MENU, MANAGE_TASKS_MENU, ADD_TASK_DATE_SELECT, ADD_TASK_CONTENT = range(4)
 
+# فایل دیتابیس
 DB_FILE = 'users_data.json'
 TOKEN = os.environ.get('BOT_TOKEN', '')
+
+# ایجاد Flask app برای سلامت‌سنجی
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 Bot is running!"
+
+@app.route('/health')
+def health():
+    return "OK"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=5000, debug=False)
 
 class Database:
     @staticmethod
@@ -218,6 +236,11 @@ def main():
     
     if not os.path.exists(DB_FILE):
         Database.save({})
+    
+    # اجرای Flask در background برای سلامت‌سنجی
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
     
     application = Application.builder().token(TOKEN).build()
     
