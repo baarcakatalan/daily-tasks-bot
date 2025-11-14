@@ -1,7 +1,9 @@
 services:
   - type: web
-    name: daily-tasks-bot
+    name: daily-bot
     env: python
     plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python app.py"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    healthCheckPath: /health
+    port: 5000
