@@ -1,12 +1,12 @@
 import os
 import logging
-import threading
 import json
 from datetime import datetime
-from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler
 import jdatetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 # تنظیمات logging
 logging.basicConfig(
@@ -21,19 +21,25 @@ MAIN_MENU, MANAGE_TASKS_MENU, ADD_TASK_DATE_SELECT, ADD_TASK_CONTENT = range(4)
 DB_FILE = 'users_data.json'
 TOKEN = os.environ.get('BOT_TOKEN', '')
 
-# ایجاد Flask app برای سلامت‌سنجی
-app = Flask(__name__)
+# Health check handler ساده
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def log_message(self, format, *args):
+        return  # لاگ نکن
 
-@app.route('/')
-def home():
-    return "🤖 Bot is running!"
-
-@app.route('/health')
-def health():
-    return "OK"
-
-def run_flask():
-    app.run(host='0.0.0.0', port=5000, debug=False)
+def run_health_server():
+    """سرور ساده برای سلامت‌سنجی"""
+    server = HTTPServer(('0.0.0.0', 5000), HealthHandler)
+    server.serve_forever()
 
 class Database:
     @staticmethod
@@ -81,7 +87,7 @@ async def start(update: Update, context: CallbackContext) -> int:
 
 منوي اصلي:
 📅 برنامه امروز
-🔧 مديريت کارها
+🔧 مديریت کارها
 📊 آمار و گزارش
 """
     await update.message.reply_text(welcome_text, reply_markup=ReplyKeyboardRemove())
@@ -89,13 +95,13 @@ async def start(update: Update, context: CallbackContext) -> int:
 
 async def show_main_menu(update: Update, context: CallbackContext) -> int:
     keyboard = [
-        [KeyboardButton("📅 برنامه امروز"), KeyboardButton("🔧 مديريت کارها")],
+        [KeyboardButton("📅 برنامه امروز"), KeyboardButton("🔧 مدیریت کارها")],
         [KeyboardButton("📊 آمار و گزارش")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     await update.message.reply_text(
-        "منوي اصلي - لطفا انتخاب کن:",
+        "منوی اصلی - لطفا انتخاب کن:",
         reply_markup=reply_markup
     )
     return MAIN_MENU
@@ -108,7 +114,7 @@ async def show_today_tasks(update: Update, context: CallbackContext) -> int:
     if today_key in users_db[user_id].get("dated_tasks", {}):
         tasks = users_db[user_id]["dated_tasks"][today_key]
     
-    tasks_text = "\n".join([f"• {task['name']}" for task in tasks]) if tasks else "هيچ کاري براي امروز ثبت نشده"
+    tasks_text = "\n".join([f"• {task['name']}" for task in tasks]) if tasks else "هیچ کاری برای امروز ثبت نشده"
     
     await update.message.reply_text(
         f"📅 برنامه امروز:\n\n{tasks_text}"
@@ -117,13 +123,13 @@ async def show_today_tasks(update: Update, context: CallbackContext) -> int:
 
 async def show_manage_tasks_menu(update: Update, context: CallbackContext) -> int:
     keyboard = [
-        [KeyboardButton("➕ اضافه کار جديد")],
-        [KeyboardButton("🏠 منوي اصلي")]
+        [KeyboardButton("➕ اضافه کار جدید")],
+        [KeyboardButton("🏠 منوی اصلی")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     await update.message.reply_text(
-        "مديريت کارها - انتخاب کن:",
+        "مدیریت کارها - انتخاب کن:",
         reply_markup=reply_markup
     )
     return MANAGE_TASKS_MENU
@@ -131,7 +137,7 @@ async def show_manage_tasks_menu(update: Update, context: CallbackContext) -> in
 async def select_year(update: Update, context: CallbackContext):
     keyboard = [
         [KeyboardButton("📅 1404"), KeyboardButton("📅 1405")],
-        [KeyboardButton("🏠 منوي اصلي")]
+        [KeyboardButton("🏠 منوی اصلی")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
@@ -144,7 +150,7 @@ async def select_year(update: Update, context: CallbackContext):
 async def handle_date_selection(update: Update, context: CallbackContext) -> int:
     selection = update.message.text
     
-    if "منوي اصلي" in selection:
+    if "منوی اصلی" in selection:
         return await show_main_menu(update, context)
     
     if "1404" in selection or "1405" in selection:
@@ -152,8 +158,8 @@ async def handle_date_selection(update: Update, context: CallbackContext) -> int
         context.user_data["selected_year"] = year
         
         keyboard = [
-            [KeyboardButton("فروردين"), KeyboardButton("ارديبهشت")],
-            [KeyboardButton("🏠 منوي اصلي")]
+            [KeyboardButton("فروردین"), KeyboardButton("اردیبهشت")],
+            [KeyboardButton("🏠 منوی اصلی")]
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         
@@ -163,13 +169,13 @@ async def handle_date_selection(update: Update, context: CallbackContext) -> int
         )
         return ADD_TASK_DATE_SELECT
     
-    months = ["فروردين", "ارديبهشت"]
+    months = ["فروردین", "اردیبهشت"]
     if selection in months:
         year = context.user_data.get("selected_year", 1404)
         context.user_data["selected_month"] = selection
         
         await update.message.reply_text(
-            f"کارهايت رو براي {selection} {year} وارد کن (هر خط يک کار):",
+            f"کارهایت رو برای {selection} {year} وارد کن (هر خط یک کار):",
             reply_markup=ReplyKeyboardRemove()
         )
         return ADD_TASK_CONTENT
@@ -183,11 +189,11 @@ async def handle_add_task_content(update: Update, context: CallbackContext) -> i
     tasks_list = [task.strip() for task in tasks_text.split('\n') if task.strip()]
     
     if not tasks_list:
-        await update.message.reply_text("هيچ کاري وارد نکردي!")
+        await update.message.reply_text("هیچ کاری وارد نکردی!")
         return await show_main_menu(update, context)
     
     year = context.user_data.get("selected_year", 1404)
-    month = context.user_data.get("selected_month", "فروردين")
+    month = context.user_data.get("selected_month", "فروردین")
     
     date_key = get_date_key()
     
@@ -205,7 +211,7 @@ async def handle_add_task_content(update: Update, context: CallbackContext) -> i
     
     await update.message.reply_text(
         f"✅ {len(tasks_list)} کار ثبت شد!\n\n"
-        f"براي {month} {year}"
+        f"برای {month} {year}"
     )
     
     return await show_main_menu(update, context)
@@ -224,8 +230,8 @@ async def show_stats(update: Update, context: CallbackContext) -> int:
     
     await update.message.reply_text(
         f"📊 آمار شما:\n\n"
-        f"✅ کارهاي انجام شده: {completed_tasks} از {total_tasks}\n"
-        f"📈 نرخ تکميل: {completion_rate}%"
+        f"✅ کارهای انجام شده: {completed_tasks} از {total_tasks}\n"
+        f"📈 نرخ تکمیل: {completion_rate}%"
     )
     return await show_main_menu(update, context)
 
@@ -237,10 +243,10 @@ def main():
     if not os.path.exists(DB_FILE):
         Database.save({})
     
-    # اجرای Flask در background برای سلامت‌سنجی
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
+    # اجرای health server در background
+    health_thread = threading.Thread(target=run_health_server)
+    health_thread.daemon = True
+    health_thread.start()
     
     application = Application.builder().token(TOKEN).build()
     
@@ -249,12 +255,12 @@ def main():
         states={
             MAIN_MENU: [
                 MessageHandler(filters.Regex("^📅 برنامه امروز$"), show_today_tasks),
-                MessageHandler(filters.Regex("^🔧 مديريت کارها$"), show_manage_tasks_menu),
+                MessageHandler(filters.Regex("^🔧 مدیریت کارها$"), show_manage_tasks_menu),
                 MessageHandler(filters.Regex("^📊 آمار و گزارش$"), show_stats)
             ],
             MANAGE_TASKS_MENU: [
-                MessageHandler(filters.Regex("^➕ اضافه کار جديد$"), select_year),
-                MessageHandler(filters.Regex("^🏠 منوي اصلي$"), show_main_menu)
+                MessageHandler(filters.Regex("^➕ اضافه کار جدید$"), select_year),
+                MessageHandler(filters.Regex("^🏠 منوی اصلی$"), show_main_menu)
             ],
             ADD_TASK_DATE_SELECT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_date_selection)
